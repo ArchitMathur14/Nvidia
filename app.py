@@ -1,21 +1,3 @@
-Here is the complete, updated `app.py` and `requirements.txt` ready to be committed to your GitHub repository for Streamlit Cloud deployment. It includes the robust data-fetching methods and defensive checks to prevent the `ValueError`.
-
-### `requirements.txt`
-
-```text
-streamlit
-pandas
-numpy
-plotly
-scikit-learn
-yfinance
-pandas-datareader
-
-```
-
-### `app.py`
-
-```python
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -206,5 +188,3 @@ elif section == "3. NVIDIA Corp (CAPM & Monte Carlo)":
             st.plotly_chart(fig_mc, use_container_width=True)
             
             st.info(f"Current Price: **${last_price:.2f}** | Expected Average Price in {days_to_simulate} days: **${avg_path[-1]:.2f}**")
-
-```
