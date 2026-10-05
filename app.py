@@ -2,21 +2,59 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+import plotly.express as px
 from sklearn.linear_model import LinearRegression
+import yfinance as yf
+import pandas_datareader as pdr
+import datetime
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
-    page_title="SAPM-1 Analysis Report: NVIDIA",
+    page_title="SAPM-1 Analysis: NVIDIA",
     page_icon="📈",
     layout="wide"
 )
+
+# --- DATA CACHING TO PREVENT SLOW LOAD TIMES ---
+@st.cache_data
+def load_macro_data():
+    """Fetch real US GDP and Federal Funds Rate from FRED."""
+    start = datetime.datetime(2015, 1, 1)
+    end = datetime.datetime.now()
+    try:
+        gdp = pdr.DataReader('GDP', 'fred', start, end)
+        rates = pdr.DataReader('FEDFUNDS', 'fred', start, end)
+        return gdp, rates
+    except Exception:
+        return None, None
+
+@st.cache_data
+def load_stock_data():
+    """Fetch real stock data for NVDA (Nvidia), ^GSPC (S&P 500), and SMH (Semi ETF)."""
+    end = datetime.datetime.now()
+    start = end - datetime.timedelta(days=5*365) # 5 years
+    
+    # Download data individually to avoid MultiIndex complexity
+    nvda = yf.download('NVDA', start=start, end=end)['Close']
+    sp500 = yf.download('^GSPC', start=start, end=end)['Close']
+    smh = yf.download('SMH', start=start, end=end)['Close']
+    
+    df = pd.DataFrame({'NVDA': nvda, 'S&P500': sp500, 'SMH': smh}).dropna()
+    return df
+
+# Load the data
+gdp_df, rates_df = load_macro_data()
+stock_df = load_stock_data()
+
+# Calculate Daily Returns for SAPM Analysis
+returns_df = stock_df.pct_change().dropna()
 
 # --- SIDEBAR: REPORT DETAILS ---
 st.sidebar.image("https://upload.wikimedia.org/wikipedia/commons/2/21/Nvidia_logo.svg", width=150)
 st.sidebar.title("Analysis Report")
 st.sidebar.markdown("**Submitted by:** Archit Mathur")
 st.sidebar.markdown("**Program:** PGDM 2025–27")
-st.sidebar.markdown("**Institution:** FORE School of Management, New Delhi")
+st.sidebar.markdown("**Institution:** FORE School of Management")
 st.sidebar.markdown("**Submitted to:** Bhaskar Chhimwal (Prof.)")
 st.sidebar.markdown("**Course:** SAPM-1")
 st.sidebar.divider()
@@ -26,94 +64,110 @@ st.sidebar.subheader("Navigation")
 section = st.sidebar.radio("Go to section:", [
     "1. The US Economy", 
     "2. The Semiconductor Industry", 
-    "3. NVIDIA Corporation (Prediction Model)"
+    "3. NVIDIA Corp (CAPM & Monte Carlo)"
 ])
 
 # --- SECTION 1: THE US ECONOMY ---
 if section == "1. The US Economy":
-    st.title("The US Economy")
-    st.markdown("### Macroeconomic Indicators")
-    st.write("This section analyzes the macroeconomic landscape impacting the tech sector.")
+    st.title("1. The US Economy")
+    st.markdown("### Macroeconomic Indicators (Live FRED Data)")
+    st.write("In Security Analysis, understanding the macroeconomic environment is the first step of the Top-Down Approach. Here we look at actual US GDP growth and Interest Rates.")
     
-    # Simulated GDP Growth Data
-    col1, col2, col3 = st.columns(3)
-    col1.metric("GDP Growth Rate", "2.1%", "+0.2%")
-    col2.metric("Inflation Rate (CPI)", "3.2%", "-0.1%")
-    col3.metric("Interest Rate", "5.25%", "0.0%")
-    
-    st.subheader("Simulated Economic Trend")
-    chart_data = pd.DataFrame(np.random.randn(20, 2), columns=["GDP Forecast", "Consumer Spending"])
-    st.line_chart(chart_data)
+    if gdp_df is not None and not gdp_df.empty:
+        # Plot GDP
+        fig_gdp = px.line(gdp_df, x=gdp_df.index, y='GDP', title='US Gross Domestic Product (Billions of Dollars)')
+        st.plotly_chart(fig_gdp, use_container_width=True)
+        
+        # Plot Interest Rates
+        fig_rates = px.line(rates_df, x=rates_df.index, y='FEDFUNDS', title='Effective Federal Funds Rate (%)', color_discrete_sequence=['red'])
+        st.plotly_chart(fig_rates, use_container_width=True)
+    else:
+        st.error("Failed to load FRED data. Please check your internet connection or FRED API limits.")
 
 # --- SECTION 2: THE SEMICONDUCTOR INDUSTRY ---
 elif section == "2. The Semiconductor Industry":
-    st.title("The Semiconductor Industry")
-    st.markdown("### Industry Overview & Market Share")
-    st.write("An analysis of the global semiconductor supply chain and demand constraints.")
+    st.title("2. The Semiconductor Industry")
+    st.markdown("### Industry vs. Broader Market Performance")
+    st.write("Comparing the VanEck Semiconductor ETF (SMH) against the S&P 500 to show industry outperformance.")
     
-    # Simulated Market Share Donut Chart
-    labels = ['NVIDIA', 'AMD', 'Intel', 'Others']
-    values = [65, 15, 12, 8]
-    fig = go.Figure(data=[go.Pie(labels=labels, values=values, hole=.3)])
-    fig.update_layout(title_text="Estimated GPU Data Center Market Share (%)")
+    # Normalize prices to 100 at the start of the period for easy comparison
+    normalized_df = (stock_df / stock_df.iloc[0]) * 100
+    
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=normalized_df.index, y=normalized_df['SMH'], mode='lines', name='Semiconductor ETF (SMH)'))
+    fig.add_trace(go.Scatter(x=normalized_df.index, y=normalized_df['S&P500'], mode='lines', name='S&P 500 Market', line=dict(color='gray')))
+    fig.add_trace(go.Scatter(x=normalized_df.index, y=normalized_df['NVDA'], mode='lines', name='NVIDIA (NVDA)', line=dict(color='green')))
+    
+    fig.update_layout(title='5-Year Normalized Performance (Base 100)', yaxis_title='Normalized Price', hovermode="x unified")
     st.plotly_chart(fig, use_container_width=True)
 
 # --- SECTION 3: NVIDIA PREDICTION MODEL ---
-elif section == "3. NVIDIA Corporation (Prediction Model)":
-    st.title("NVIDIA Corporation")
-    st.markdown("### Interactive Stock Trend & Linear Regression Predictor")
+elif section == "3. NVIDIA Corp (CAPM & Monte Carlo)":
+    st.title("3. NVIDIA Corporation")
     
-    # Generate Mock Historical Data for NVIDIA
-    np.random.seed(42)
-    days = np.arange(1, 101)
-    # Simulate an upward trend with volatility
-    historical_price = 400 + 4.5 * days + np.random.normal(0, 25, 100)
-    df = pd.DataFrame({"Day": days, "Price": historical_price})
+    tab1, tab2 = st.tabs(["Linear Regression (CAPM Beta)", "Monte Carlo Price Simulation"])
+    
+    # --- TAB 1: CAPM BETA REGRESSION ---
+    with tab1:
+        st.markdown("### CAPM: Systematic Risk (Beta) Calculation")
+        st.write("Instead of regressing price against time, we regress NVIDIA's daily returns against the S&P 500's daily returns. The slope of this line is the stock's **Beta**, a measure of volatility relative to the market.")
+        
+        X = returns_df[['S&P500']].values
+        y = returns_df['NVDA'].values
+        
+        # Linear Regression Model
+        model = LinearRegression()
+        model.fit(X, y)
+        beta = model.coef_[0]
+        alpha = model.intercept_
+        
+        # Plotly Scatter & Trendline
+        fig_beta = go.Figure()
+        fig_beta.add_trace(go.Scatter(x=X.flatten(), y=y, mode='markers', name='Daily Returns', marker=dict(color='rgba(0, 150, 0, 0.3)', size=5)))
+        fig_beta.add_trace(go.Scatter(x=X.flatten(), y=model.predict(X), mode='lines', name=f'Regression Line (Beta = {beta:.2f})', line=dict(color='red', width=3)))
+        
+        fig_beta.update_layout(title="NVIDIA vs S&P 500 Daily Returns", xaxis_title="S&P 500 Returns", yaxis_title="NVIDIA Returns")
+        st.plotly_chart(fig_beta, use_container_width=True)
+        
+        col1, col2 = st.columns(2)
+        col1.metric("Calculated Beta (Systematic Risk)", f"{beta:.2f}")
+        col2.metric("Calculated Alpha (Idiosyncratic Return)", f"{alpha:.5f}")
+        st.caption("A Beta > 1 indicates that NVIDIA is more volatile than the broader market.")
 
-    # Interactivity: Allow faculty to adjust the prediction window
-    st.markdown("Use the slider below to predict NVIDIA's price trend for future days based on historical linear regression.")
-    future_days = st.slider("Select forecasting horizon (Days):", min_value=5, max_value=60, value=30, step=5)
-
-    # --- MACHINE LEARNING: LINEAR REGRESSION ---
-    X = df[["Day"]]
-    y = df["Price"]
-    model = LinearRegression()
-    model.fit(X, y)
-
-    # Predict future values
-    future_X = np.arange(101, 101 + future_days).reshape(-1, 1)
-    future_y = model.predict(future_X)
-    
-    # Predict historical trendline
-    trendline_y = model.predict(X)
-
-    # --- PLOTLY VISUALIZATION ---
-    fig = go.Figure()
-    
-    # Historical Data
-    fig.add_trace(go.Scatter(x=df["Day"], y=df["Price"], 
-                             mode='lines', name='Simulated Historical Price',
-                             line=dict(color='gray', width=2)))
-    
-    # Historical Trendline
-    fig.add_trace(go.Scatter(x=df["Day"], y=trendline_y, 
-                             mode='lines', name='Historical Trendline',
-                             line=dict(color='blue', width=2)))
-    
-    # Future Prediction
-    fig.add_trace(go.Scatter(x=np.arange(101, 101 + future_days), y=future_y, 
-                             mode='lines+markers', name='Future Prediction (Regression)',
-                             line=dict(color='green', dash='dash', width=3)))
-
-    fig.update_layout(
-        title=f"NVIDIA Price Projection ({future_days}-Day Horizon)",
-        xaxis_title="Trading Days",
-        yaxis_title="Price (USD)",
-        hovermode="x unified"
-    )
-    st.plotly_chart(fig, use_container_width=True)
-    
-    # Display Model Metrics
-    st.subheader("Model Insights")
-    st.write(f"**Calculated Daily Growth Coefficient:** ${model.coef_[0]:.2f} per day")
-    st.write(f"**Projected Price on Day {100 + future_days}:** ${future_y[-1]:.2f}")
+    # --- TAB 2: MONTE CARLO SIMULATION ---
+    with tab2:
+        st.markdown("### Monte Carlo Future Price Simulation")
+        st.write("Simulating future price paths based on historical Geometric Brownian Motion (drift and volatility).")
+        
+        days_to_simulate = st.slider("Forecasting Horizon (Days):", 10, 252, 60, step=10)
+        num_simulations = st.selectbox("Number of Simulations:", [100, 500, 1000], index=1)
+        
+        # Simulation Parameters
+        last_price = stock_df['NVDA'].iloc[-1]
+        mu = returns_df['NVDA'].mean()
+        sigma = returns_df['NVDA'].std()
+        
+        # Generate random paths
+        np.random.seed(42)
+        simulated_paths = np.zeros((days_to_simulate, num_simulations))
+        simulated_paths[0] = last_price
+        
+        for t in range(1, days_to_simulate):
+            rand_shocks = np.random.normal(loc=mu, scale=sigma, size=num_simulations)
+            simulated_paths[t] = simulated_paths[t-1] * (1 + rand_shocks)
+            
+        # Plot paths
+        fig_mc = go.Figure()
+        # Plot a subset of paths to keep the browser fast (e.g., 50 paths)
+        for i in range(min(50, num_simulations)):
+            fig_mc.add_trace(go.Scatter(x=np.arange(days_to_simulate), y=simulated_paths[:, i], mode='lines', line=dict(color='rgba(0, 150, 0, 0.1)'), showlegend=False))
+        
+        # Calculate and plot the average path
+        avg_path = simulated_paths.mean(axis=1)
+        fig_mc.add_trace(go.Scatter(x=np.arange(days_to_simulate), y=avg_path, mode='lines', name='Expected Average Path', line=dict(color='red', width=3)))
+        
+        fig_mc.update_layout(title=f"Monte Carlo Simulation ({num_simulations} iterations) for next {days_to_simulate} days", 
+                             xaxis_title="Days in Future", yaxis_title="Simulated Price (USD)")
+        st.plotly_chart(fig_mc, use_container_width=True)
+        
+        st.info(f"Current Price: **${last_price:.2f}** | Expected Average Price in {days_to_simulate} days: **${avg_path[-1]:.2f}**")
